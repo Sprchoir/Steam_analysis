@@ -1,7 +1,6 @@
 ---
 title: "Steam Dataset"
 author: "Yuxun He"
-format: pdf
 ---
 
 As described in the proposal, we have two main datasets, one from SteamSpy API and another from web scraping the Steam Store.
