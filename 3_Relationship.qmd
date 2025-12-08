@@ -1,0 +1,630 @@
+---
+title: "Relationship Analysis"
+author: "Tingjun Chen"
+---
+
+We examine how pricing, playtime, engagement, reviews, ownership, release timing, and tags interact. All plots use consistent transformations to handle heavy-tailed distributions, and we highlight practical takeaways for pricing, value perception, and activity.
+
+## Setup and Data Preparation
+
+```{r}
+#| message = FALSE
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(patchwork)
+```
+
+```{r}
+theme_rel <- theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray30"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11),
+    plot.margin = margin(10, 12, 10, 12)
+  )
+
+# Helper for wrapping/dodging long discrete labels to reduce overlaps
+wrap_axis <- function(x, width = 12) stringr::str_wrap(x, width = width)
+dodge_labels <- function(n = 2) guide_axis(n.dodge = n)
+```
+
+```{r}
+raw <- readRDS("data/merged_data.rds")
+
+owners_clean <- raw$owners %>%
+  str_replace_all("\\s*\\.\\.\\s*", " ~ ") %>%  # normalize separator ".." to "~"
+  str_replace_all(",", "")                      # strip thousands separators
+
+owners_split <- str_split_fixed(owners_clean, "\\s*~\\s*", 2)
+owners_low  <- as.numeric(owners_split[, 1])
+owners_high <- as.numeric(owners_split[, 2])
+
+rel <- raw %>%
+  mutate(
+    across(
+      c(
+        positive, negative, average_forever, average_2weeks,
+        median_forever, median_2weeks, price, initialprice,
+        discount, ccu
+      ),
+      as.numeric
+    ),
+    price_usd = price / 100,
+    initial_usd = initialprice / 100,
+    playtime_h = average_forever / 60,
+    recent_h = average_2weeks / 60,
+    median_forever_h = median_forever / 60,
+    median_recent_h = median_2weeks / 60,
+    good_ratio = if_else(positive + negative > 0,
+                         positive / (positive + negative),
+                         NA_real_),
+    net_reviews = positive - negative,
+    owners_low = owners_low,
+    owners_high = owners_high,
+    owners_mid = if_else(
+      !is.na(owners_low) & !is.na(owners_high),
+      (owners_low + owners_high) / 2,
+      NA_real_
+    ),
+    owners_top = owners_high,
+    price_per_hour = if_else(
+      playtime_h > 0,
+      price_usd / pmax(playtime_h, 0.1),
+      NA_real_
+    ),
+    release_date = mdy(release_date),
+    release_year = year(release_date),
+    disc_frac = discount / 100,
+    years_since_release = as.numeric(difftime(Sys.Date(), release_date, units = "days")) / 365.25,
+    release_cohort = case_when(
+      release_year <= 2015 ~ "2005-2015",
+      release_year <= 2019 ~ "2016-2019",
+      release_year > 2019 ~ "2020+",
+      TRUE ~ NA_character_
+    ),
+    release_cohort = factor(
+      release_cohort,
+      levels = c("2005-2015", "2016-2019", "2020+")
+    ),
+    recent_share = if_else(
+      playtime_h > 0 & recent_h >= 0,
+      pmin(recent_h / playtime_h, 1),
+      NA_real_
+    )
+  )
+
+# Price bands (free plus quartiles for paid games)
+paid_breaks <- quantile(
+  rel$price_usd[rel$price_usd > 0],
+  probs = seq(0, 1, 0.25),
+  na.rm = TRUE
+)
+
+rel <- rel %>%
+  mutate(
+    price_band = case_when(
+      price_usd == 0 ~ "Free",
+      price_usd > 0 ~ as.character(cut(
+        price_usd,
+        breaks = paid_breaks,
+        include.lowest = TRUE,
+        labels = c("Q1 Low", "Q2 Mid", "Q3 High", "Q4 Very High")
+      ))
+    ),
+    price_band = factor(
+      price_band,
+      levels = c("Free", "Q1 Low", "Q2 Mid", "Q3 High", "Q4 Very High")
+    )
+  )
+
+glimpse(rel)
+```
+
+## Correlation Snapshot Across Key Metrics
+
+We use Spearman correlations on log-transformed heavy-tailed variables to reduce leverage from extreme hits.
+
+```{r}
+corr_df <- rel %>%
+  transmute(
+    price_usd,
+    discount = disc_frac,
+    log_owners = log1p(owners_mid),
+    log_ccu = log1p(ccu),
+    log_pos = log1p(positive),
+    log_neg = log1p(negative),
+    log_play = log1p(playtime_h),
+    log_recent = log1p(recent_h),
+    good_ratio,
+    price_per_hour
+  ) %>%
+  drop_na()
+
+corr_mat <- cor(corr_df, method = "spearman")
+
+corr_long <- as.data.frame(as.table(corr_mat)) %>%
+  rename(var_x = Var1, var_y = Var2, rho = Freq)
+
+ggplot(
+  corr_long,
+  aes(x = var_x, y = var_y, fill = rho)
+) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = "#2166ac",
+    mid = "white",
+    high = "#b2182b",
+    midpoint = 0,
+    limits = c(-1, 1),
+    oob = squish
+  ) +
+  coord_fixed() +
+  labs(
+    title = "Spearman Correlations of Core Metrics",
+    subtitle = "Log transforms applied to playtime, reviews, owners, and CCU to handle heavy tails",
+    x = NULL,
+    y = NULL,
+    fill = "ρ"
+  ) +
+  theme_rel +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+**Highlights**  
+- Price is nearly uncorrelated with owners/CCU, while discounts show strong positive links with owners/reviews—promotion matters more than base price.  
+- Playtime (lifetime/recent) tracks review volumes and mildly lifts good_ratio; price_per_hour is inversely related to both playtime and sentiment.  
+- Scale metrics (owners, CCU, positive/negative reviews, playtime) move together, capturing overall game reach.
+
+## Pricing, Demand, and Discount Effects
+
+```{r}
+# Median trend based on price percentiles and discount tiers
+price_bins <- rel %>%
+  filter(price_usd > 0, owners_mid > 0, discount >= 0) %>%
+  mutate(price_bin = ntile(price_usd, 12),
+         disc_band = cut(discount, breaks = c(-Inf, 0, 25, 50, 75, Inf),
+                         labels = c("0%", "1-25%", "26-50%", "51-75%", ">75%")))
+
+p_price_owner_med <- price_bins %>%
+  group_by(price_bin, disc_band) %>%
+  summarise(
+    med_price = median(price_usd),
+    med_owners = median(owners_mid),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(med_price, med_owners, color = disc_band)) +
+  geom_line() + geom_point(size = 2) +
+  scale_x_log10(labels = dollar_format()) +
+  scale_y_log10(labels = label_number(scale_cut = cut_si(""))) +
+  labs(title = "Median Owners by Price Decile and Discount Band",
+       x = "Price (USD, log)", y = "Median Owners (log)", color = "Discount") +
+  theme_rel
+
+p_price_ccu_med <- rel %>%
+  filter(price_usd > 0, ccu > 0) %>%
+  mutate(price_bin = ntile(price_usd, 12)) %>%
+  group_by(price_bin) %>%
+  summarise(med_price = median(price_usd), med_ccu = median(ccu), .groups = "drop") %>%
+  ggplot(aes(med_price, med_ccu)) +
+  geom_line(color = "#4C72B0") + geom_point(color = "#4C72B0", size = 2) +
+  scale_x_log10(labels = dollar_format()) +
+  scale_y_log10(labels = label_number(scale_cut = cut_si(""))) +
+  labs(title = "Median CCU by Price Decile", x = "Price (USD, log)", y = "Median CCU (log)") +
+  theme_rel
+
+p_price_owner_med / p_price_ccu_med
+```
+
+**Notes**  
+- Owners medians stay similar across price deciles with a modest uptick at higher prices—likely a “big-title” effect rather than price-driven elasticity.  
+- Discount bands overlap heavily; the >75% band occasionally shows higher medians, but deep discounts are concentrated in already-popular titles.  
+- Median CCU rises with price deciles, again consistent with high-production-value titles rather than cheaper games pulling more live players.
+
+```{r}
+# Age-adjusted view: high reach at high prices is a cohort effect (older AAA titles)
+p_price_owner_cohort <- rel %>%
+  filter(
+    price_usd > 0, owners_mid > 0, !is.na(release_cohort),
+    if_all(c(price_usd, owners_mid), is.finite)
+  ) %>%
+  ggplot(aes(price_usd, owners_mid, color = release_cohort)) +
+  geom_point(alpha = 0.05, size = 0.8) +
+  geom_smooth(
+    method = "gam",
+    formula = y ~ s(log10(x), bs = "cs"),
+    se = FALSE,
+    size = 1
+  ) +
+  scale_x_log10(labels = dollar_format()) +
+  scale_y_log10(labels = label_number(scale_cut = cut_si(""))) +
+  labs(
+    title = "Owners vs Price, Controlling for Release Cohort",
+    subtitle = "Older cohorts sit higher at every price; price alone does not explain reach",
+    x = "Price (USD, log)",
+    y = "Owners (log)",
+    color = "Release Cohort"
+  ) +
+  theme_rel
+
+# Discount depth vs reach within price bands
+p_discount_owner <- rel %>%
+  filter(
+    price_usd > 0, owners_mid > 0, discount >= 0, discount <= 100,
+    if_all(c(owners_mid, discount), is.finite)
+  ) %>%
+  ggplot(aes(discount, log1p(owners_mid), color = price_band)) +
+  geom_smooth(
+    method = "gam",
+    formula = y ~ s(x, bs = "cs"),
+    se = FALSE,
+    size = 1
+  ) +
+  scale_x_continuous(labels = percent_format(scale = 1)) +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    title = "Discount Depth vs Owner Scale by Price Band",
+    subtitle = "Within bands, deeper discounts correlate with higher owner counts",
+    x = "Discount",
+    y = "log(Owners + 1)",
+    color = "Price Band"
+  ) +
+  theme_rel
+
+p_price_owner_cohort | p_discount_owner
+```
+
+**Notes**  
+- Cohort adjustment shows the “high price → high owners” pattern is largely age-driven: 2005–2015 releases dominate reach at every price.  
+- Within each price band, deeper discounts associate with more owners—evidence of demand lift from promotions rather than sticker price.  
+
+## Perceived Value: Playtime, Cost Efficiency, and Sentiment
+
+```{r}
+p_value <- rel %>%
+  filter(playtime_h > 0, price_per_hour > 0) %>%
+  ggplot(aes(playtime_h, price_per_hour)) +
+  geom_bin2d(bins = 40) +
+  scale_x_log10(labels = label_number(scale_cut = cut_si(""))) +
+  scale_y_log10(labels = dollar_format()) +
+  scale_fill_viridis_c(option = "C") +
+  labs(
+    title = "Playtime vs Price per Hour",
+    subtitle = "Longer-playtime games deliver lower $/hr; outliers in top-right are short but pricey",
+    x = "Average Lifetime Playtime (hours, log scale)",
+    y = "Price per Hour (USD, log scale)",
+    fill = "Count"
+  ) +
+  theme_rel
+
+p_play_sentiment <- rel %>%
+  filter(playtime_h > 0, !is.na(good_ratio)) %>%
+  ggplot(aes(playtime_h, good_ratio)) +
+  geom_bin2d(bins = 40) +
+  geom_smooth(
+    method = "gam",
+    formula = y ~ s(x, bs = "cs"),
+    color = "#e4572e",
+    se = FALSE
+  ) +
+  scale_x_log10(labels = label_number(scale_cut = cut_si(""))) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_fill_viridis_c(option = "C") +
+  labs(
+    title = "Playtime vs Positive Review Share",
+    subtitle = "Higher engagement generally aligns with better sentiment",
+    x = "Average Lifetime Playtime (hours, log scale)",
+    y = "Positive Review Share",
+    fill = "Count"
+  ) +
+  theme_rel
+
+p_facet_price <- rel %>%
+  filter(playtime_h > 0, !is.na(good_ratio)) %>%
+  ggplot(aes(playtime_h, good_ratio)) +
+  geom_point(
+    alpha = 0.08,
+    size = 0.8,
+    color = "#4C72B0"
+  ) +
+  geom_smooth(
+    method = "gam",
+    formula = y ~ s(x, bs = "cs"),
+    color = "#e4572e",
+    se = FALSE
+  ) +
+  scale_x_log10(labels = label_number(scale_cut = cut_si(""))) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  facet_wrap(~price_band, ncol = 3) +
+  labs(
+    title = "Engagement vs Sentiment by Price Band",
+    subtitle = "Free-to-play and low-price titles show wider variability",
+    x = "Average Lifetime Playtime (hours, log scale)",
+    y = "Positive Review Share"
+  ) +
+  theme_rel
+
+(p_value | p_play_sentiment) / p_facet_price
+```
+
+**Notes**  
+- $/hr drops sharply as playtime rises; short-and-pricey titles sit in the low-sentiment corner.  
+- Sentiment lifts modestly with engagement then plateaus around 70–85%; ultra-long titles do not keep rising.  
+- Free/Q1 bands show widest sentiment spread; higher-price bands are tighter and mostly 70–85% positive.
+
+## Activity and Retention
+
+```{r}
+p_recent <- rel %>%
+  filter(playtime_h > 0, recent_h > 0) %>%
+  ggplot(aes(playtime_h, recent_h)) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    linetype = "dashed",
+    color = "gray40"
+  ) +
+  geom_bin2d(bins = 40) +
+  scale_x_log10(labels = label_number(scale_cut = cut_si(""))) +
+  scale_y_log10(labels = label_number(scale_cut = cut_si(""))) +
+  scale_fill_viridis_c(option = "C") +
+  labs(
+    title = "Lifetime vs Recent Playtime",
+    subtitle = "Points below the diagonal indicate weakening recent engagement",
+    x = "Lifetime Playtime (hours, log scale)",
+    y = "Recent 2-Week Playtime (hours, log scale)",
+    fill = "Count"
+  ) +
+  theme_rel
+
+p_ccu_retention <- rel %>%
+  filter(median_recent_h > 0, ccu > 0) %>%
+  ggplot(aes(median_recent_h, ccu)) +
+  geom_bin2d(bins = 40) +
+  geom_smooth(
+    method = "gam",
+    formula = y ~ s(x, bs = "cs"),
+    color = "#e4572e",
+    se = FALSE
+  ) +
+  scale_x_log10(labels = label_number(scale_cut = cut_si(""))) +
+  scale_y_log10(labels = label_number(scale_cut = cut_si(""))) +
+  scale_fill_viridis_c(option = "C") +
+  labs(
+    title = "Recent Median Playtime vs CCU",
+    subtitle = "Higher recent commitment aligns with live player counts",
+    x = "Recent Median Playtime (hours, log scale)",
+    y = "Concurrent Users (log scale)",
+    fill = "Count"
+  ) +
+  theme_rel
+
+p_recent | p_ccu_retention
+```
+
+**Notes**  
+- Most games sit well below the 45° line—recent playtime is far lower than lifetime, showing typical post-launch drop-off.  
+- Recent median hours have a monotonic positive link with CCU: even moderate recent engagement (1–5 hours median) associates with higher live players.  
+- Priority segment to improve: titles with low recent hours and low CCU (bottom-left of both plots).
+
+```{r}
+# Retention ratio vs sentiment to identify churn vs delight pockets
+p_retention_sentiment <- rel %>%
+  filter(!is.na(recent_share), !is.na(good_ratio)) %>%
+  ggplot(aes(recent_share, good_ratio, color = price_band)) +
+  geom_point(alpha = 0.05, size = 0.8) +
+  geom_smooth(
+    method = "gam",
+    formula = y ~ s(x, bs = "cs"),
+    se = FALSE,
+    size = 1
+  ) +
+  scale_x_continuous(labels = percent_format(accuracy = 1)) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    title = "Recent Play Share vs Positive Review Share",
+    subtitle = "Higher retention aligns with higher sentiment; free/low bands show widest variance",
+    x = "Recent Share of Lifetime Playtime",
+    y = "Positive Review Share",
+    color = "Price Band"
+  ) +
+  theme_rel
+
+p_retention_sentiment
+```
+
+**Notes**  
+- High sentiment coincides with stronger retention ratios; outliers with high churn and middling sentiment flag early drop-off issues.  
+- Free and Q1 titles span the full retention range, indicating design/live-ops rather than pricing is the main lever for keeping players.  
+
+## Release Timing vs Pricing, Value, and Demand
+
+```{r}
+yearly <- rel %>%
+  filter(!is.na(release_year), release_year >= 2005, release_year <= year(Sys.Date())) %>%
+  group_by(release_year) %>%
+  summarise(
+    n = n(),
+    med_price = median(price_usd, na.rm = TRUE),
+    med_discount = median(discount, na.rm = TRUE),
+    med_good = median(good_ratio, na.rm = TRUE),
+    med_owners = median(owners_mid, na.rm = TRUE),
+    med_price_per_hour = median(price_per_hour, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(med_price, med_discount, med_good, med_owners, med_price_per_hour),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+metric_labels <- c(
+  med_price = "Median Price (USD)",
+  med_discount = "Median Discount (%)",
+  med_good = "Median Positive Share",
+  med_owners = "Median Owners",
+  med_price_per_hour = "Median $/Hour"
+)
+
+ggplot(yearly, aes(release_year, value, color = metric)) +
+  geom_line(size = 1) +
+  facet_wrap(~metric, scales = "free_y", labeller = as_labeller(metric_labels)) +
+  scale_y_continuous(labels = label_number(scale_cut = cut_si(""))) +
+  scale_color_manual(values = RColorBrewer::brewer.pal(5, "Set1"), guide = "none") +
+  labs(
+    title = "Yearly Shifts in Pricing, Value, and Scale",
+    subtitle = "Medians by release year; free/paid mixed",
+    x = "Release Year",
+    y = NULL
+  ) +
+  theme_rel
+```
+
+**Notes**  
+- Median discount is flat at 0%, reflecting many titles without active discounts; use a non-zero-filtered view to study promotions.  
+- Median price shows a U-shape: drop around 2017–2019 (free/low-price surge), rebound post-2021 with more premium releases.  
+- Positive share dipped mid-2010s then climbed toward ~0.85+, suggesting recent cohorts review better.  
+- Median owners step down after ~2014, consistent with a fatter long tail of niche launches rather than broadening reach.  
+- Median $/hour is volatile but ticks up after 2019, hinting at shorter or pricier experiences in recent years.
+
+## Sentiment Structure and Review Volume
+
+```{r}
+review_levels <- c(
+  "Overwhelmingly Negative", "Very Negative", "Negative",
+  "Mostly Negative", "Mixed", "Mostly Positive", "Positive",
+  "Very Positive", "Overwhelmingly Positive"
+)
+
+review_df <- rel %>%
+  filter(!is.na(overall_review)) %>%
+  mutate(
+    is_numeric = str_detect(overall_review, "^\\d"),
+    overall_review = factor(overall_review, levels = review_levels, ordered = TRUE)
+  ) %>%
+  filter(!is_numeric)
+
+p_sent_vol <- rel %>%
+  filter(!is.na(good_ratio), positive >= 0) %>%
+  ggplot(aes(log1p(positive), good_ratio)) +
+  geom_bin2d(bins = 50) +
+  scale_fill_viridis_c(option = "C") +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(
+    title = "Positive Share vs Review Volume",
+    subtitle = "Volume (x-axis, log) vs positivity; dense band around 70–90%",
+    x = "Positive Reviews (log1p)",
+    y = "Positive Review Share",
+    fill = "Count"
+  ) +
+  theme_rel
+
+p_price_review <- review_df %>%
+  ggplot(aes(overall_review, price_usd)) +
+  geom_boxplot(outlier.alpha = 0.2, fill = "#4C72B0") +
+  coord_flip() +
+  labs(
+    title = "Price Distribution by Qualitative Review",
+    x = "Overall Review",
+    y = "Price (USD)"
+  ) +
+  theme_rel
+
+p_owner_review <- review_df %>%
+  filter(owners_mid > 0) %>%
+  ggplot(aes(overall_review, owners_mid)) +
+  geom_boxplot(outlier.alpha = 0.2, fill = "#4C72B0") +
+  scale_y_log10(labels = label_number(scale_cut = cut_si(""))) +
+  coord_flip() +
+  labs(
+    title = "Owner Scale by Qualitative Review",
+    x = "Overall Review",
+    y = "Estimated Owners (log scale)"
+  ) +
+  theme_rel
+
+p_sent_vol / (p_price_review | p_owner_review)
+```
+
+**Notes**  
+- Positivity bands cluster around 70–90% across a wide span of review volumes; low-volume titles show wider spread (0–100%).  
+- Prices inch upward with better qualitative tiers but remain tightly centered below ~$20 across categories.  
+- Owner scale increases markedly from “Mixed” upward; “Very/Overwhelmingly Positive” tiers concentrate around 100k–300k owners with a long upper tail.
+
+## Tag-Level Contrasts
+
+```{r}
+tag_summary <- rel %>%
+  filter(!is.na(tags)) %>%
+  separate_rows(tags, sep = ",") %>%
+  mutate(tag = str_trim(tags)) %>%
+  filter(tag != "+") %>%
+  group_by(tag) %>%
+  summarise(
+    n = n(),
+    med_price = median(price_usd, na.rm = TRUE),
+    med_good = median(good_ratio, na.rm = TRUE),
+    med_owners = median(owners_mid, na.rm = TRUE),
+    med_play = median(playtime_h, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n)) %>%
+  slice_head(n = 20) %>%
+  mutate(tag = fct_reorder(tag, n))
+
+tag_heat <- tag_summary %>%
+  mutate(across(c(med_price, med_good, med_owners, med_play), scale)) %>%
+  pivot_longer(
+    cols = c(med_price, med_good, med_owners, med_play),
+    names_to = "metric",
+    values_to = "z"
+  )
+
+p_tag_counts <- ggplot(tag_summary, aes(tag, n)) +
+  geom_col(fill = "#4C72B0") +
+  coord_flip() +
+  scale_x_discrete(labels = wrap_axis) +
+  scale_y_continuous(labels = label_number(scale_cut = cut_si(""))) +
+  labs(
+    title = "Top 20 Tags by Game Count",
+    x = "Tag",
+    y = "Number of Games"
+  ) +
+  theme_rel
+
+p_tag_heat <- ggplot(tag_heat, aes(metric, tag, fill = z)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = "#2166ac", mid = "white", high = "#b2182b", midpoint = 0
+  ) +
+  scale_x_discrete(guide = dodge_labels(2)) +
+  scale_y_discrete(labels = wrap_axis) +
+  labs(
+    title = "Tag-Level Median Metrics (Standardized)",
+    x = "Metric (Median, scaled within column)",
+    y = "Tag",
+    fill = "z-score"
+  ) +
+  theme_rel +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+
+p_tag_counts | p_tag_heat
+```
+
+**Notes**  
+- Top-volume tags are Singleplayer/Indie/Action/Adventure/Casual, forming the bulk of the catalog.  
+- Multiplayer shows the highest median owners; Exploration/Story Rich/Horror lean higher on playtime; Story Rich also posts elevated positivity.  
+- Indie/Casual/2D skew cheaper and lower on owner medians; Action/Adventure/RPG sit nearer the center on price and positivity.  
+- Use tag effects for positioning: Multiplayer for reach, Story Rich/Horror for depth, Casual/2D for budget-friendly segments.
+
+## Key Takeaways
+
+- Price has weak direct links to owners/CCU; apparent high-scale at high prices is likely big-title effect. Discounts overlap heavily and median discounts are zero—promo analysis needs non-zero filtering.  
+- Cohort view: older (2005–2015) releases carry the reach at every price; price alone is not driving demand. Within price bands, deeper discounts track with more owners, so promotions matter more than sticker price.  
+- Engagement ties to sentiment and live activity: playtime lifts positive share then plateaus; higher recent hours associate with higher CCU. Short, high $/hour games sit in low-sentiment territory.  
+- Retention vs sentiment: higher recent-share aligns with higher positivity; free/low-price titles have the widest churn range—improve onboarding/live-ops rather than price tweaks.  
+- Release trends: median price dipped pre-2020 then rebounded; positivity climbed from mid-2010s; median owners stepped down; $/hour has ticked up in recent years.  
+- Tag signals: Singleplayer/Indie/Action dominate counts; Multiplayer shows highest owners, Story Rich/Horror higher playtime and positivity; Casual/2D skew cheaper with lower owner medians.  
+- Focus interventions on low recent playtime + low CCU titles, on value tuning for short-but-pricey games, and on promo depth rather than list price to move reach.
