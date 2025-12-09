@@ -3,7 +3,7 @@ title: "Relationship Analysis"
 author: "Tingjun Chen"
 ---
 
-We examine how pricing, playtime, engagement, reviews, ownership, release timing, and tags interact. All plots use consistent transformations to handle heavy-tailed distributions, and we highlight practical takeaways for pricing, value perception, and activity.
+We examine how pricing, playtime, engagement, reviews, ownership, release timing, and tags interact. All plots use consistent transformations to handle heavy-tailed distributions.
 
 ## Setup and Data Preparation
 
@@ -173,9 +173,13 @@ ggplot(
 ```
 
 **Highlights**  
-- Price is nearly uncorrelated with owners/CCU, while discounts show strong positive links with owners/reviews—promotion matters more than base price.  
-- Playtime (lifetime/recent) tracks review volumes and mildly lifts good_ratio; price_per_hour is inversely related to both playtime and sentiment.  
-- Scale metrics (owners, CCU, positive/negative reviews, playtime) move together, capturing overall game reach.
+- Core engagement and popularity metrics (playtime, recent play, owners, reviews, CCU) are highly collinear, indicating they all capture a shared underlying construct: overall game popularity.
+- Positive and negative review counts are strongly correlated, showing that games with large player bases naturally accumulate both more praise and more criticism.
+- The good-review ratio is only moderately correlated with scale metrics, suggesting that perceived quality is not the primary driver of popularity.
+- Price per hour shows weak negative correlations with engagement, implying that higher value-per-hour games tend to be played more, but the effect is modest.
+- Base price exhibits weak to moderate positive correlations with popularity indicators, consistent with larger, premium titles attracting more players despite higher cost.
+- Discount level shows minimal correlation with engagement or popularity, indicating that simple discount status is not a strong predictor in cross-sectional data.
+- Strong multicollinearity among core metrics suggests the need for feature reduction (e.g., selecting representative variables or applying PCA) when building predictive models.
 
 ## Pricing, Demand, and Discount Effects
 
@@ -218,66 +222,10 @@ p_price_owner_med / p_price_ccu_med
 ```
 
 **Notes**  
-- Owners medians stay similar across price deciles with a modest uptick at higher prices—likely a “big-title” effect rather than price-driven elasticity.  
-- Discount bands overlap heavily; the >75% band occasionally shows higher medians, but deep discounts are concentrated in already-popular titles.  
-- Median CCU rises with price deciles, again consistent with high-production-value titles rather than cheaper games pulling more live players.
-
-```{r}
-# Age-adjusted view: high reach at high prices is a cohort effect (older AAA titles)
-p_price_owner_cohort <- rel %>%
-  filter(
-    price_usd > 0, owners_mid > 0, !is.na(release_cohort),
-    if_all(c(price_usd, owners_mid), is.finite)
-  ) %>%
-  ggplot(aes(price_usd, owners_mid, color = release_cohort)) +
-  geom_point(alpha = 0.05, size = 0.8) +
-  geom_smooth(
-    method = "gam",
-    formula = y ~ s(log10(x), bs = "cs"),
-    se = FALSE,
-    size = 1
-  ) +
-  scale_x_log10(labels = dollar_format()) +
-  scale_y_log10(labels = label_number(scale_cut = cut_si(""))) +
-  labs(
-    title = "Owners vs Price, Controlling for Release Cohort",
-    subtitle = "Older cohorts sit higher at every price; price alone does not explain reach",
-    x = "Price (USD, log)",
-    y = "Owners (log)",
-    color = "Release Cohort"
-  ) +
-  theme_rel
-
-# Discount depth vs reach within price bands
-p_discount_owner <- rel %>%
-  filter(
-    price_usd > 0, owners_mid > 0, discount >= 0, discount <= 100,
-    if_all(c(owners_mid, discount), is.finite)
-  ) %>%
-  ggplot(aes(discount, log1p(owners_mid), color = price_band)) +
-  geom_smooth(
-    method = "gam",
-    formula = y ~ s(x, bs = "cs"),
-    se = FALSE,
-    size = 1
-  ) +
-  scale_x_continuous(labels = percent_format(scale = 1)) +
-  scale_color_brewer(palette = "Set1") +
-  labs(
-    title = "Discount Depth vs Owner Scale by Price Band",
-    subtitle = "Within bands, deeper discounts correlate with higher owner counts",
-    x = "Discount",
-    y = "log(Owners + 1)",
-    color = "Price Band"
-  ) +
-  theme_rel
-
-p_price_owner_cohort | p_discount_owner
-```
-
-**Notes**  
-- Cohort adjustment shows the “high price → high owners” pattern is largely age-driven: 2005–2015 releases dominate reach at every price.  
-- Within each price band, deeper discounts associate with more owners—evidence of demand lift from promotions rather than sticker price.  
+- Higher-priced games show much higher median CCU, indicating that premium titles tend to sustain stronger active playerbases.
+- Median owners do not decline with price; mid- to high-price games often have more owners than low-price titles, contradicting the assumption that cheaper games attract larger audiences.
+- Deeply discounted games (>75%) exhibit the highest median owners, suggesting that major discounts are primarily used by already successful, large-audience titles rather than driving popularity on their own.
+- For very low-priced games, discounts make little difference, as all discount bands converge to similar ownership levels.
 
 ## Perceived Value: Playtime, Cost Efficiency, and Sentiment
 
@@ -291,7 +239,6 @@ p_value <- rel %>%
   scale_fill_viridis_c(option = "C") +
   labs(
     title = "Playtime vs Price per Hour",
-    subtitle = "Longer-playtime games deliver lower $/hr; outliers in top-right are short but pricey",
     x = "Average Lifetime Playtime (hours, log scale)",
     y = "Price per Hour (USD, log scale)",
     fill = "Count"
@@ -313,7 +260,6 @@ p_play_sentiment <- rel %>%
   scale_fill_viridis_c(option = "C") +
   labs(
     title = "Playtime vs Positive Review Share",
-    subtitle = "Higher engagement generally aligns with better sentiment",
     x = "Average Lifetime Playtime (hours, log scale)",
     y = "Positive Review Share",
     fill = "Count"
@@ -339,7 +285,6 @@ p_facet_price <- rel %>%
   facet_wrap(~price_band, ncol = 3) +
   labs(
     title = "Engagement vs Sentiment by Price Band",
-    subtitle = "Free-to-play and low-price titles show wider variability",
     x = "Average Lifetime Playtime (hours, log scale)",
     y = "Positive Review Share"
   ) +
@@ -349,9 +294,9 @@ p_facet_price <- rel %>%
 ```
 
 **Notes**  
-- $/hr drops sharply as playtime rises; short-and-pricey titles sit in the low-sentiment corner.  
-- Sentiment lifts modestly with engagement then plateaus around 70–85%; ultra-long titles do not keep rising.  
-- Free/Q1 bands show widest sentiment spread; higher-price bands are tighter and mostly 70–85% positive.
+- Longer average playtime strongly correlates with lower effective price per hour, indicating that perceived value is driven more by engagement than by list price.
+- Positive review share peaks at moderate playtime levels, suggesting a satisfaction “sweet spot” before long-term fatigue sets in.
+- Across all price bands, the relationship between engagement and sentiment is structurally similar: reviews improve with early engagement, stabilize, and then slightly taper at very high playtimes.
 
 ## Activity and Retention
 
@@ -371,7 +316,6 @@ p_recent <- rel %>%
   scale_fill_viridis_c(option = "C") +
   labs(
     title = "Lifetime vs Recent Playtime",
-    subtitle = "Points below the diagonal indicate weakening recent engagement",
     x = "Lifetime Playtime (hours, log scale)",
     y = "Recent 2-Week Playtime (hours, log scale)",
     fill = "Count"
@@ -393,7 +337,6 @@ p_ccu_retention <- rel %>%
   scale_fill_viridis_c(option = "C") +
   labs(
     title = "Recent Median Playtime vs CCU",
-    subtitle = "Higher recent commitment aligns with live player counts",
     x = "Recent Median Playtime (hours, log scale)",
     y = "Concurrent Users (log scale)",
     fill = "Count"
@@ -404,9 +347,8 @@ p_recent | p_ccu_retention
 ```
 
 **Notes**  
-- Most games sit well below the 45° line—recent playtime is far lower than lifetime, showing typical post-launch drop-off.  
-- Recent median hours have a monotonic positive link with CCU: even moderate recent engagement (1–5 hours median) associates with higher live players.  
-- Priority segment to improve: titles with low recent hours and low CCU (bottom-left of both plots).
+- Lifetime playtime strongly predicts recent activity, but many long-time players still churn, indicating that historical engagement is helpful but not sufficient for retention.
+- Games with higher recent median playtime tend to have higher CCU, especially when moving from very low to moderate playtime, though the impact shows diminishing returns at higher levels.
 
 ```{r}
 # Retention ratio vs sentiment to identify churn vs delight pockets
@@ -425,7 +367,6 @@ p_retention_sentiment <- rel %>%
   scale_color_brewer(palette = "Set1") +
   labs(
     title = "Recent Play Share vs Positive Review Share",
-    subtitle = "Higher retention aligns with higher sentiment; free/low bands show widest variance",
     x = "Recent Share of Lifetime Playtime",
     y = "Positive Review Share",
     color = "Price Band"
@@ -436,8 +377,10 @@ p_retention_sentiment
 ```
 
 **Notes**  
-- High sentiment coincides with stronger retention ratios; outliers with high churn and middling sentiment flag early drop-off issues.  
-- Free and Q1 titles span the full retention range, indicating design/live-ops rather than pricing is the main lever for keeping players.  
+- Games’ recent play share shows only a weak relationship with positive review share; the curves remain largely flat across all price bands.
+- Free titles exhibit slightly lower average positive review rates compared with paid games.
+- Games with extremely high recent play share (near 100 percent) tend to show a mild drop in review positivity, likely reflecting early-lifecycle volatility.
+- Most games cluster near zero recent play share, underscoring the strong long-tail nature of player engagement. 
 
 ## Release Timing vs Pricing, Value, and Demand
 
@@ -486,7 +429,7 @@ ggplot(yearly, aes(release_year, value, color = metric)) +
 - Median discount is flat at 0%, reflecting many titles without active discounts; use a non-zero-filtered view to study promotions.  
 - Median price shows a U-shape: drop around 2017–2019 (free/low-price surge), rebound post-2021 with more premium releases.  
 - Positive share dipped mid-2010s then climbed toward ~0.85+, suggesting recent cohorts review better.  
-- Median owners step down after ~2014, consistent with a fatter long tail of niche launches rather than broadening reach.  
+- Median owners step down after ~2014, consistent with a fatter long tail of niche launches rather than broadening reach. 
 - Median $/hour is volatile but ticks up after 2019, hinting at shorter or pricier experiences in recent years.
 
 ## Sentiment Structure and Review Volume
@@ -514,7 +457,6 @@ p_sent_vol <- rel %>%
   scale_y_continuous(labels = percent_format(accuracy = 1)) +
   labs(
     title = "Positive Share vs Review Volume",
-    subtitle = "Volume (x-axis, log) vs positivity; dense band around 70–90%",
     x = "Positive Reviews (log1p)",
     y = "Positive Review Share",
     fill = "Count"
@@ -549,9 +491,9 @@ p_sent_vol / (p_price_review | p_owner_review)
 ```
 
 **Notes**  
-- Positivity bands cluster around 70–90% across a wide span of review volumes; low-volume titles show wider spread (0–100%).  
-- Prices inch upward with better qualitative tiers but remain tightly centered below ~$20 across categories.  
-- Owner scale increases markedly from “Mixed” upward; “Very/Overwhelmingly Positive” tiers concentrate around 100k–300k owners with a long upper tail.
+- Games with larger review volumes tend to have higher and more stable positive-review shares. Low-volume titles show highly variable positivity, ranging from nearly 0 to 100 percent.
+- Price varies little across review categories; cheap titles dominate every rating tier. Review quality does not show a meaningful relationship with game price.
+- Ownership ranges overlap heavily across review categories, with no simple monotonic trend. Extremely positive and extremely negative games both include some large-audience titles, while mid-tier negative games tend to have smaller player bases.
 
 ## Tag-Level Contrasts
 
@@ -614,17 +556,8 @@ p_tag_counts | p_tag_heat
 ```
 
 **Notes**  
-- Top-volume tags are Singleplayer/Indie/Action/Adventure/Casual, forming the bulk of the catalog.  
-- Multiplayer shows the highest median owners; Exploration/Story Rich/Horror lean higher on playtime; Story Rich also posts elevated positivity.  
-- Indie/Casual/2D skew cheaper and lower on owner medians; Action/Adventure/RPG sit nearer the center on price and positivity.  
-- Use tag effects for positioning: Multiplayer for reach, Story Rich/Horror for depth, Casual/2D for budget-friendly segments.
-
-## Key Takeaways
-
-- Price has weak direct links to owners/CCU; apparent high-scale at high prices is likely big-title effect. Discounts overlap heavily and median discounts are zero—promo analysis needs non-zero filtering.  
-- Cohort view: older (2005–2015) releases carry the reach at every price; price alone is not driving demand. Within price bands, deeper discounts track with more owners, so promotions matter more than sticker price.  
-- Engagement ties to sentiment and live activity: playtime lifts positive share then plateaus; higher recent hours associate with higher CCU. Short, high $/hour games sit in low-sentiment territory.  
-- Retention vs sentiment: higher recent-share aligns with higher positivity; free/low-price titles have the widest churn range—improve onboarding/live-ops rather than price tweaks.  
-- Release trends: median price dipped pre-2020 then rebounded; positivity climbed from mid-2010s; median owners stepped down; $/hour has ticked up in recent years.  
-- Tag signals: Singleplayer/Indie/Action dominate counts; Multiplayer shows highest owners, Story Rich/Horror higher playtime and positivity; Casual/2D skew cheaper with lower owner medians.  
-- Focus interventions on low recent playtime + low CCU titles, on value tuning for short-but-pricey games, and on promo depth rather than list price to move reach.
+- High-frequency tags are not the strongest performers. Tags like Singleplayer, Indie, and Action appear most often, but their median owners, playtime, and price sit close to the overall average. Prevalence does not imply higher commercial or engagement performance.
+- Multiplayer stands out as a scale and engagement driver. It shows the highest median owners and playtime among all top tags, indicating strong reach and long-term engagement, even though its median review scores are not exceptional.
+- Narrative- and depth-oriented tags command higher value. Story Rich, RPG, Strategy, and Fantasy are associated with higher median playtime and higher pricing, suggesting a segment of durable, content-heavy titles that sustain player investment.
+- 2D, Pixel Graphics, and Colorful represent the “low price, high satisfaction” cluster. These tags show lower pricing but above-average review scores, aligning with smaller-scale, lower-cost titles that reliably deliver strong player sentiment.
+- Casual and Puzzle titles skew toward short-session experiences. They appear frequently but show lower median playtime and moderate pricing, reflecting lighter engagement patterns compared to heavier narrative or multiplayer genres.
