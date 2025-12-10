@@ -173,13 +173,11 @@ ggplot(
 ```
 
 **Highlights**  
-- Core engagement and popularity metrics (playtime, recent play, owners, reviews, CCU) are highly collinear, indicating they all capture a shared underlying construct: overall game popularity.
+- Core engagement and popularity metrics (playtime, recent play, owners, reviews, CCU) are highly collinear, indicating they all capture a shared underlying construct: overall game popularity, which suggests the need for feature reduction when building predictive models.
 - Positive and negative review counts are strongly correlated, showing that games with large player bases naturally accumulate both more praise and more criticism.
-- The good-review ratio is only moderately correlated with scale metrics, suggesting that perceived quality is not the primary driver of popularity.
 - Price per hour shows weak negative correlations with engagement, implying that higher value-per-hour games tend to be played more, but the effect is modest.
 - Base price exhibits weak to moderate positive correlations with popularity indicators, consistent with larger, premium titles attracting more players despite higher cost.
 - Discount level shows minimal correlation with engagement or popularity, indicating that simple discount status is not a strong predictor in cross-sectional data.
-- Strong multicollinearity among core metrics suggests the need for feature reduction (e.g., selecting representative variables or applying PCA) when building predictive models.
 
 ## Pricing, Demand, and Discount Effects
 
@@ -284,7 +282,7 @@ p_facet_price <- rel %>%
   scale_y_continuous(labels = percent_format(accuracy = 1)) +
   facet_wrap(~price_band, ncol = 3) +
   labs(
-    title = "Engagement vs Sentiment by Price Band",
+    title = "Playtime vs Positive Review Share by Price Band",
     x = "Average Lifetime Playtime (hours, log scale)",
     y = "Positive Review Share"
   ) +
@@ -294,9 +292,9 @@ p_facet_price <- rel %>%
 ```
 
 **Notes**  
-- Longer average playtime strongly correlates with lower effective price per hour, indicating that perceived value is driven more by engagement than by list price.
+- Price per hour drops sharply as average playtime increases, reflecting higher percieved value in long-engagement titles.
 - Positive review share peaks at moderate playtime levels, suggesting a satisfaction “sweet spot” before long-term fatigue sets in.
-- Across all price bands, the relationship between engagement and sentiment is structurally similar: reviews improve with early engagement, stabilize, and then slightly taper at very high playtimes.
+- Across all price bands, sentiment patterns are similar, with the highest positivity at mid-range playtimes and slight declines at very low or very high playtimes levels.
 
 ## Activity and Retention
 
@@ -347,8 +345,10 @@ p_recent | p_ccu_retention
 ```
 
 **Notes**  
-- Lifetime playtime strongly predicts recent activity, but many long-time players still churn, indicating that historical engagement is helpful but not sufficient for retention.
-- Games with higher recent median playtime tend to have higher CCU, especially when moving from very low to moderate playtime, though the impact shows diminishing returns at higher levels.
+- Recent 2-week playtime is positively correlated with lifetime playtime, indicating that long-time players tend to stay active.
+- Games with higher recent median playtime generally have more concurrent users, suggesting that more “sticky” games attract larger active populations. 
+- Warmer colors mark where most games cluster at moderate playtime and moderate CCU.
+
 
 ```{r}
 # Retention ratio vs sentiment to identify churn vs delight pockets
@@ -377,10 +377,9 @@ p_retention_sentiment
 ```
 
 **Notes**  
-- Games’ recent play share shows only a weak relationship with positive review share; the curves remain largely flat across all price bands.
-- Free titles exhibit slightly lower average positive review rates compared with paid games.
-- Games with extremely high recent play share (near 100 percent) tend to show a mild drop in review positivity, likely reflecting early-lifecycle volatility.
-- Most games cluster near zero recent play share, underscoring the strong long-tail nature of player engagement. 
+- Across all price bands, positive review share remains consistently high (roughly 75–90%) with only modest variation as recent play share changes.
+- A slight increase appears in the mid-range of recent play share, but overall the curves remain fairly flat, indicating a weak relationship.
+- Free titles tend to show lower positive review shares, while higher-priced games (Q3/Q4) maintain more stable and slightly higher ratings across the full range.
 
 ## Release Timing vs Pricing, Value, and Demand
 
@@ -426,11 +425,10 @@ ggplot(yearly, aes(release_year, value, color = metric)) +
 ```
 
 **Notes**  
-- Median discount is flat at 0%, reflecting many titles without active discounts; use a non-zero-filtered view to study promotions.  
-- Median price shows a U-shape: drop around 2017–2019 (free/low-price surge), rebound post-2021 with more premium releases.  
-- Positive share dipped mid-2010s then climbed toward ~0.85+, suggesting recent cohorts review better.  
-- Median owners step down after ~2014, consistent with a fatter long tail of niche launches rather than broadening reach. 
-- Median $/hour is volatile but ticks up after 2019, hinting at shorter or pricier experiences in recent years.
+- The median discount remains at 0%, suggesting that most games do not rely on discounting strategies.
+- The positive review share fluctuates in earlier years but rises noticeably in recent years, indicating stronger reception for newer releases.
+- Median owner counts peak around 2012–2014 and decline afterward.
+- Both price and price-per-hour show a dip followed by a rise, with recent games becoming more expensive while also delivering higher hourly value.
 
 ## Sentiment Structure and Review Volume
 
@@ -448,20 +446,6 @@ review_df <- rel %>%
     overall_review = factor(overall_review, levels = review_levels, ordered = TRUE)
   ) %>%
   filter(!is_numeric)
-
-p_sent_vol <- rel %>%
-  filter(!is.na(good_ratio), positive >= 0) %>%
-  ggplot(aes(log1p(positive), good_ratio)) +
-  geom_bin2d(bins = 50) +
-  scale_fill_viridis_c(option = "C") +
-  scale_y_continuous(labels = percent_format(accuracy = 1)) +
-  labs(
-    title = "Positive Share vs Review Volume",
-    x = "Positive Reviews (log1p)",
-    y = "Positive Review Share",
-    fill = "Count"
-  ) +
-  theme_rel
 
 p_price_review <- review_df %>%
   ggplot(aes(overall_review, price_usd)) +
@@ -487,13 +471,12 @@ p_owner_review <- review_df %>%
   ) +
   theme_rel
 
-p_sent_vol / (p_price_review | p_owner_review)
+p_price_review | p_owner_review
 ```
 
 **Notes**  
-- Games with larger review volumes tend to have higher and more stable positive-review shares. Low-volume titles show highly variable positivity, ranging from nearly 0 to 100 percent.
 - Price varies little across review categories; cheap titles dominate every rating tier. Review quality does not show a meaningful relationship with game price.
-- Ownership ranges overlap heavily across review categories, with no simple monotonic trend. Extremely positive and extremely negative games both include some large-audience titles, while mid-tier negative games tend to have smaller player bases.
+- Extremely positive and extremely negative games both include some large-audience titles, while mid-tier positive and negative games tend to have smaller player bases.
 
 ## Tag-Level Contrasts
 
@@ -560,4 +543,4 @@ p_tag_counts | p_tag_heat
 - Multiplayer stands out as a scale and engagement driver. It shows the highest median owners and playtime among all top tags, indicating strong reach and long-term engagement, even though its median review scores are not exceptional.
 - Narrative- and depth-oriented tags command higher value. Story Rich, RPG, Strategy, and Fantasy are associated with higher median playtime and higher pricing, suggesting a segment of durable, content-heavy titles that sustain player investment.
 - 2D, Pixel Graphics, and Colorful represent the “low price, high satisfaction” cluster. These tags show lower pricing but above-average review scores, aligning with smaller-scale, lower-cost titles that reliably deliver strong player sentiment.
-- Casual and Puzzle titles skew toward short-session experiences. They appear frequently but show lower median playtime and moderate pricing, reflecting lighter engagement patterns compared to heavier narrative or multiplayer genres.
+- Casual and Puzzle titles skew toward short-session experiences. They appear frequently but show lower median playtime and pricing, reflecting lighter engagement patterns compared to heavier narrative or multiplayer genres.
