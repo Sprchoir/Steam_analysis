@@ -227,7 +227,21 @@ scraped_data <- scraped_data %>%
   )
 
 cat("Scraping complete. Final rows:", nrow(scraped_data), "\n")
-saveRDS(scraped_data_unique, "scraped_data.rds")
+saveRDS(scraped_data, "data/scraped_data.rds")
+```
+
+```{r}
+#| label: load-scraped-data
+# Load pre-scraped data when skipping the scraping chunk
+if (!exists("scraped_data")) {
+  if (file.exists("data/scraped_data.rds")) {
+    scraped_data <- readRDS("data/scraped_data.rds")
+  } else if (file.exists("scraped_data.rds")) {
+    scraped_data <- readRDS("scraped_data.rds")
+  } else {
+    stop("scraped_data object not found. Run the scraping chunk or provide data/scraped_data.rds.")
+  }
+}
 ```
 
 ## Join the data
@@ -238,4 +252,3 @@ merged_data <- steam_data %>%
 glimpse(merged_data)
 saveRDS(merged_data, "merged_data.rds")
 ```
-
