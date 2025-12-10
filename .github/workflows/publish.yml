@@ -26,6 +26,26 @@ jobs:
             plotly
             DT
             crosstalk
+            shiny
+            scales
+            patchwork
+            here
+            tidytext
+            factoextra
+            cluster
+            gridExtra
+            viridis
+            ggplot2
+            dplyr
+            stringr
+            jsonlite
+            purrr
+            rvest
+            furrr
+            parallel
+            progress
+            tidyr
+            httr2
       - name: Render
         run: quarto render
       - name: Publish to gh-pages
