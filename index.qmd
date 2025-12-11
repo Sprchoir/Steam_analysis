@@ -1,6 +1,6 @@
 ---
-title: "Steam Games Commercial Success Analysis"
-subtitle: "A Data-Driven Exploration of 28,000+ Games"
+title: "Understanding the commercial success of Steam games"
+subtitle: "Data Analysis of 28,000+ Games"
 author: "Fruity Robo Team"
 ---
 
@@ -8,14 +8,14 @@ author: "Fruity Robo Team"
 
 This project analyzes the **commercial success factors** of video games on Steam, the world's largest digital PC gaming marketplace.  Using data from 28,017 games, we explore: 
 
-- 📊 **Pricing & Discount Strategies** - How do pricing decisions impact success?
-- 🎮 **Genre & Tag Clustering** - Which game types share similar outcomes?
-- 📅 **Temporal Patterns** - Are there seasonal release patterns?
-- 🏢 **Publisher Effects** - Do large publishers systematically outperform indies?
+- **Pricing & Discount Strategies** - How do pricing decisions impact success?
+- **Genre & Tag Clustering** - Which game types share similar outcomes?
+- **Temporal Patterns** - Are there seasonal release patterns?
+- **Publisher Effects** - Do large publishers systematically outperform indies?
 
 ## Key Findings
 
-### 🔥 The "Success Formula" Decoded
+### The "Success Formula" Decoded
 
 | Cluster | Profile | Key Insight |
 |---------|---------|-------------|
@@ -24,7 +24,7 @@ This project analyzes the **commercial success factors** of video games on Steam
 | **Cluster 2** | Indie Gems | High ratings through unique mechanics, avoiding action tropes |
 | **Cluster 1** | Shovelware | High action but low narrative = poor reception |
 
-### 📈 Market Insights
+### Market Insights
 
 - **Premium games** show higher median CCU, contradicting the assumption that cheaper = more popular
 - **Deep discounts (>75%)** are used by already successful titles, not as a growth strategy

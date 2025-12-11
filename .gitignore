@@ -3,6 +3,10 @@
 .RData
 .Ruserdata
 .DS_Store
+<<<<<<< Updated upstream
 /.quarto/
 **/*.quarto_ipynb
 _site/
+=======
+fig
+>>>>>>> Stashed changes

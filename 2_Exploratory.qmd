@@ -1,6 +1,7 @@
 ---
 title: "Exploratory Analysis"
 author: "Yuxun He"
+format: html
 ---
 
 We aim to conduct an exploratory analysis of key characteristics of games in the dataset, including playtime, pricing, user reviews, ownership scale, release patterns over time, and game tags. 
@@ -51,7 +52,7 @@ tail_info <- af %>%
   )
 
 # Histogram focusing on the main body of the distribution
-ggplot(
+p <- ggplot(
   af %>% filter(average_forever <= 1500),
   aes(x = average_forever)
 ) +
@@ -75,6 +76,15 @@ ggplot(
     y = "Number of Games"
   ) +
   theme_myplot
+p
+
+ggsave(
+  filename = "fig/playtime_distribution.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 ```
 
 ### Distribution of Game Prices
@@ -89,7 +99,7 @@ pr_tail <- pr %>%
     max_val = max(price)
   )
 
-ggplot(
+p <- ggplot(
   pr %>% filter(price <= 80),
   aes(x = price)
 ) +
@@ -112,6 +122,15 @@ ggplot(
     y = "Number of Games"
   ) +
   theme_myplot
+p
+
+ggsave(
+  filename = "fig/price_distribution.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 ```
 
 ### Distribution of Overall Review Ratings
@@ -152,7 +171,7 @@ excluded_info <- review_df %>%
   )
 
 # Plot distribution after excluding numeric-only reviews
-ggplot(
+p <- ggplot(
   review_df %>% filter(!is_numeric_review),
   aes(x = overall_review)
 ) +
@@ -169,6 +188,15 @@ ggplot(
   ) +
   theme_myplot +
   theme(axis.text.x = element_text(angle = 30, hjust = 1))
+p
+
+ggsave(
+  filename = "fig/review_distribution.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 ```
 
 ### Distribution
@@ -197,7 +225,7 @@ owner_df <- data %>%
   )
 
 # ----- plot (y-axis owners: small -> large) -----
-ggplot(owner_df, aes(x = owners)) +
+p <- ggplot(owner_df, aes(x = owners)) +
   geom_bar(fill = "#4C72B0", color = "white") +
   coord_flip() +
   labs(
@@ -207,11 +235,20 @@ ggplot(owner_df, aes(x = owners)) +
     y = "Number of Games"
   ) +
   theme_myplot
+p
+
+ggsave(
+  filename = "fig/ownership_distribution.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 ```
 
 ### Game Releases Over Time
 ```{r}
-data %>%
+d <- data %>%
   mutate(
     release_date = lubridate::mdy(release_date)
   ) %>%
@@ -220,8 +257,8 @@ data %>%
   mutate(
     y_pos = row_number()
   ) %>%
-  ungroup() %>%
-  ggplot(aes(x = release_date, y = y_pos)) +
+  ungroup()
+p <- ggplot(d, aes(x = release_date, y = y_pos)) +
   geom_point(
     alpha = 0.25,
     size = 1.2,
@@ -234,6 +271,15 @@ data %>%
     y = "Number of Games Released on the Same Date"
   ) +
   theme_myplot
+p
+  
+ggsave(
+  filename = "fig/release_over_time.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 ```
 
 ```{r}
@@ -246,7 +292,7 @@ tag_counts <- data %>%
 
 top_tags <- tag_counts %>% slice_max(n, n = 20)
 
-top_tags %>%
+p <- top_tags %>%
   ggplot(aes(x = reorder(tags, n), y = n)) +
   geom_col(fill = "#4C72B0") +
   coord_flip() +
@@ -257,5 +303,14 @@ top_tags %>%
     y = "Number of Games"
   ) +
   theme_myplot
+p
+
+ggsave(
+  filename = "fig/top_tags.jpg",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
 ```
 
